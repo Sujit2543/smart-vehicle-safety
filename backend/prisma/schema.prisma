@@ -1,0 +1,745 @@
+// Car Deal Smart Safety Tag — Prisma Schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  CUSTOMER
+}
+
+enum TagStatus {
+  UNASSIGNED
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  EXPIRED
+}
+
+enum ScanType {
+  QR
+  NFC
+}
+
+enum ScanPurpose {
+  ACTIVATION
+  PUBLIC_VIEW
+  DOCUMENT_ACCESS
+  ADMIN_VIEW
+}
+
+enum SOSStatus {
+  TRIGGERED
+  NOTIFIED
+  ACKNOWLEDGED
+  RESOLVED
+  CANCELLED
+}
+
+enum DocumentType {
+  RC
+  INSURANCE
+  PUC
+  OTHER
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+  PUSH
+}
+
+enum NotificationEvent {
+  WELCOME
+  INSURANCE_EXPIRY
+  PUC_EXPIRY
+  SOS_ALERT
+  OTP
+  TAG_ACTIVATED
+  DOCUMENT_VIEWED
+  MAINTENANCE_REMINDER
+}
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  CONNECTED
+  COMPLETED
+  FAILED
+  MISSED
+}
+
+enum BreakdownType {
+  TYRE_PUNCTURE
+  ENGINE_FAILURE
+  BATTERY_DEAD
+  FUEL_EMPTY
+  ACCIDENT
+  OVERHEATING
+  ELECTRICAL_ISSUE
+  BRAKE_FAILURE
+  OTHER
+}
+
+enum ServiceRequestStatus {
+  PENDING
+  ACCEPTED
+  EN_ROUTE
+  ARRIVED
+  COMPLETED
+  CANCELLED
+}
+
+enum EmergencyServiceType {
+  MECHANIC
+  TOWING
+  FUEL_DELIVERY
+  AMBULANCE
+  POLICE
+  ROADSIDE_ASSISTANCE
+}
+
+enum RatingScore {
+  ONE
+  TWO
+  THREE
+  FOUR
+  FIVE
+}
+
+enum ExpiryColor {
+  GREEN
+  YELLOW
+  ORANGE
+  RED
+  EXPIRED
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  CNG
+  ELECTRIC
+  HYBRID
+  LPG
+}
+
+enum VehicleType {
+  TWO_WHEELER
+  THREE_WHEELER
+  CAR
+  SUV
+  MUV
+  TRUCK
+  BUS
+  COMMERCIAL
+  OTHER
+}
+
+// ─────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  mobile       String?  @unique
+  email        String?  @unique
+  passwordHash String?
+  role         UserRole @default(CUSTOMER)
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  // Relations
+  customer     Customer?
+  sessions     Session[]
+  otpVerifications OTPVerification[]
+  auditLogs    AuditLog[]
+
+  @@index([mobile])
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SESSION (Refresh Token Store)
+// ─────────────────────────────────────────────────────────────
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  refreshToken String   @unique
+  deviceInfo   String?
+  ipAddress    String?
+  isRevoked    Boolean  @default(false)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// OTP VERIFICATION
+// ─────────────────────────────────────────────────────────────
+
+model OTPVerification {
+  id          String   @id @default(cuid())
+  mobile      String
+  otpHash     String
+  attempts    Int      @default(0)
+  isVerified  Boolean  @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  userId      String?
+
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@index([mobile])
+  @@index([expiresAt])
+  @@map("otp_verifications")
+}
+
+// ─────────────────────────────────────────────────────────────
+// CUSTOMER
+// ─────────────────────────────────────────────────────────────
+
+model Customer {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  fullName     String
+  mobile       String   @unique
+  email        String?
+  address      String?
+  city         String?
+  state        String?
+  pinCode      String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  // Relations
+  user         User     @relation(fields: [userId], references: [id])
+  vehicles     Vehicle[]
+  emergencyContacts EmergencyContact[]
+
+  @@index([mobile])
+  @@index([userId])
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────────────────────────
+// EMERGENCY CONTACT
+// ─────────────────────────────────────────────────────────────
+
+model EmergencyContact {
+  id           String   @id @default(cuid())
+  customerId   String
+  vehicleId    String?
+  name         String
+  mobile       String
+  relationship String
+  isPrimary    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  customer     Customer  @relation(fields: [customerId], references: [id])
+  vehicle      Vehicle?  @relation(fields: [vehicleId], references: [id])
+
+  @@index([customerId])
+  @@map("emergency_contacts")
+}
+
+// ─────────────────────────────────────────────────────────────
+// VEHICLE
+// ─────────────────────────────────────────────────────────────
+
+model Vehicle {
+  id                 String      @id @default(cuid())
+  customerId         String
+  registrationNumber String      @unique
+  vehicleType        VehicleType
+  make               String
+  model              String
+  color              String
+  manufacturingYear  Int
+  fuelType           FuelType
+  isActive           Boolean     @default(true)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  deletedAt          DateTime?
+
+  // Relations
+  customer           Customer    @relation(fields: [customerId], references: [id])
+  tag                Tag?
+  documents          Document[]
+  maintenanceRecords MaintenanceRecord[]
+  insuranceRecord    InsuranceRecord?
+  pucRecord          PUCRecord?
+  sosEvents          SOSEvent[]
+  scanLogs           ScanLog[]
+  callLogs           CallLog[]
+  emergencyContacts  EmergencyContact[]
+  breakdownRequests  BreakdownRequest[]
+
+  @@index([customerId])
+  @@index([registrationNumber])
+  @@map("vehicles")
+}
+
+// ─────────────────────────────────────────────────────────────
+// TAG
+// ─────────────────────────────────────────────────────────────
+
+model Tag {
+  id           String    @id @default(cuid())
+  tagId        String    @unique  // e.g. CD-1001
+  status       TagStatus @default(UNASSIGNED)
+  vehicleId    String?   @unique
+  qrCodeUrl    String?
+  nfcData      String?
+  activatedAt  DateTime?
+  deactivatedAt DateTime?
+  blockedAt    DateTime?
+  blockReason  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  vehicle      Vehicle?  @relation(fields: [vehicleId], references: [id])
+  activations  TagActivation[]
+  scanLogs     ScanLog[]
+
+  @@index([tagId])
+  @@index([status])
+  @@index([vehicleId])
+  @@map("tags")
+}
+
+// ─────────────────────────────────────────────────────────────
+// TAG ACTIVATION HISTORY
+// ─────────────────────────────────────────────────────────────
+
+model TagActivation {
+  id         String   @id @default(cuid())
+  tagId      String
+  vehicleId  String?
+  customerId String?
+  action     String   // ACTIVATED, DEACTIVATED, BLOCKED, REASSIGNED
+  performedBy String? // userId
+  reason     String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  tag        Tag      @relation(fields: [tagId], references: [tagId])
+
+  @@index([tagId])
+  @@index([createdAt])
+  @@map("tag_activations")
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOCUMENT
+// ─────────────────────────────────────────────────────────────
+
+model Document {
+  id           String       @id @default(cuid())
+  vehicleId    String
+  type         DocumentType
+  fileName     String
+  s3Key        String       // S3 object key (private)
+  mimeType     String
+  sizeBytes    Int
+  pinHash      String       // bcrypt hash of 4-digit PIN
+  pinAttempts  Int          @default(0)
+  pinLockedUntil DateTime?
+  isActive     Boolean      @default(true)
+  uploadedAt   DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  vehicle      Vehicle      @relation(fields: [vehicleId], references: [id])
+  accessLogs   DocumentAccessLog[]
+
+  @@index([vehicleId])
+  @@index([type])
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOCUMENT ACCESS LOG
+// ─────────────────────────────────────────────────────────────
+
+model DocumentAccessLog {
+  id          String   @id @default(cuid())
+  documentId  String
+  tagId       String?
+  ipAddress   String?
+  userAgent   String?
+  success     Boolean
+  failReason  String?
+  accessedAt  DateTime @default(now())
+
+  document    Document @relation(fields: [documentId], references: [id])
+
+  @@index([documentId])
+  @@index([accessedAt])
+  @@map("document_access_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// INSURANCE RECORD
+// ─────────────────────────────────────────────────────────────
+
+model InsuranceRecord {
+  id              String      @id @default(cuid())
+  vehicleId       String      @unique
+  policyNumber    String?
+  provider        String?
+  startDate       DateTime?
+  expiryDate      DateTime
+  premiumAmount   Float?
+  expiryColor     ExpiryColor @default(GREEN)
+  lastNotifiedAt  DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  vehicle         Vehicle     @relation(fields: [vehicleId], references: [id])
+
+  @@index([expiryDate])
+  @@index([vehicleId])
+  @@map("insurance_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PUC RECORD
+// ─────────────────────────────────────────────────────────────
+
+model PUCRecord {
+  id              String      @id @default(cuid())
+  vehicleId       String      @unique
+  certificateNo   String?
+  testCenter      String?
+  testDate        DateTime?
+  expiryDate      DateTime
+  expiryColor     ExpiryColor @default(GREEN)
+  lastNotifiedAt  DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  vehicle         Vehicle     @relation(fields: [vehicleId], references: [id])
+
+  @@index([expiryDate])
+  @@index([vehicleId])
+  @@map("puc_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// MAINTENANCE RECORD
+// ─────────────────────────────────────────────────────────────
+
+model MaintenanceRecord {
+  id            String   @id @default(cuid())
+  vehicleId     String
+  serviceDate   DateTime
+  odometer      Int?
+  serviceType   String
+  cost          Float?
+  serviceCenter String?
+  notes         String?
+  invoiceS3Key  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  vehicle       Vehicle  @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId])
+  @@index([serviceDate])
+  @@map("maintenance_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SOS EVENT
+// ─────────────────────────────────────────────────────────────
+
+model SOSEvent {
+  id              String    @id @default(cuid())
+  tagId           String
+  vehicleId       String
+  latitude        Float?
+  longitude       Float?
+  mapLink         String?
+  status          SOSStatus @default(TRIGGERED)
+  triggeredAt     DateTime  @default(now())
+  notifiedAt      DateTime?
+  acknowledgedAt  DateTime?
+  resolvedAt      DateTime?
+  cancelledAt     DateTime?
+  resolvedBy      String?
+  notes           String?
+
+  vehicle         Vehicle   @relation(fields: [vehicleId], references: [id])
+  notifications   NotificationLog[]
+
+  @@index([vehicleId])
+  @@index([tagId])
+  @@index([status])
+  @@index([triggeredAt])
+  @@map("sos_events")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SCAN LOG
+// ─────────────────────────────────────────────────────────────
+
+model ScanLog {
+  id          String      @id @default(cuid())
+  tagId       String
+  vehicleId   String?
+  scanType    ScanType    @default(QR)
+  purpose     ScanPurpose @default(PUBLIC_VIEW)
+  ipAddress   String?
+  userAgent   String?
+  deviceType  String?
+  browser     String?
+  latitude    Float?
+  longitude   Float?
+  scannedAt   DateTime    @default(now())
+
+  tag         Tag         @relation(fields: [tagId], references: [tagId])
+  vehicle     Vehicle?    @relation(fields: [vehicleId], references: [id])
+
+  @@index([tagId])
+  @@index([scannedAt])
+  @@index([scanType])
+  @@map("scan_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// NOTIFICATION TEMPLATE
+// ─────────────────────────────────────────────────────────────
+
+model NotificationTemplate {
+  id        String              @id @default(cuid())
+  event     NotificationEvent
+  channel   NotificationChannel
+  name      String
+  template  String
+  variables String[]
+  isActive  Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([event, channel])
+  @@map("notification_templates")
+}
+
+// ─────────────────────────────────────────────────────────────
+// NOTIFICATION LOG
+// ─────────────────────────────────────────────────────────────
+
+model NotificationLog {
+  id           String              @id @default(cuid())
+  channel      NotificationChannel
+  event        NotificationEvent
+  recipient    String
+  subject      String?
+  body         String
+  status       NotificationStatus  @default(PENDING)
+  providerRef  String?
+  retryCount   Int                 @default(0)
+  failReason   String?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  sosEventId   String?
+  vehicleId    String?
+  customerId   String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  sosEvent     SOSEvent?           @relation(fields: [sosEventId], references: [id])
+
+  @@index([status])
+  @@index([channel])
+  @@index([createdAt])
+  @@map("notification_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// CALL LOG
+// ─────────────────────────────────────────────────────────────
+
+model CallLog {
+  id              String     @id @default(cuid())
+  tagId           String
+  vehicleId       String
+  callerNumber    String
+  maskedNumber    String?
+  receiverNumber  String     // Actual owner number (encrypted/masked in response)
+  virtualNumber   String?
+  status          CallStatus @default(INITIATED)
+  durationSeconds Int?
+  providerRef     String?
+  initiatedAt     DateTime   @default(now())
+  endedAt         DateTime?
+
+  vehicle         Vehicle    @relation(fields: [vehicleId], references: [id])
+
+  @@index([tagId])
+  @@index([vehicleId])
+  @@index([initiatedAt])
+  @@map("call_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  userRole   String?
+  action     String
+  entity     String
+  entityId   String?
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// BREAKDOWN / ROADSIDE SERVICE REQUEST
+// ─────────────────────────────────────────────────────────────
+
+model BreakdownRequest {
+  id              String               @id @default(cuid())
+  tagId           String
+  vehicleId       String
+  customerId      String?
+  breakdownType   BreakdownType
+  serviceType     EmergencyServiceType
+  description     String?
+  latitude        Float?
+  longitude       Float?
+  mapLink         String?
+  address         String?
+  callerName      String?
+  callerMobile    String
+  status          ServiceRequestStatus @default(PENDING)
+  assignedTo      String?              // provider name/number
+  estimatedArrival String?
+  otp             String?              // 4-digit OTP to confirm service
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  notes           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  vehicle         Vehicle              @relation(fields: [vehicleId], references: [id])
+  rating          ServiceRating?
+
+  @@index([vehicleId])
+  @@index([tagId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("breakdown_requests")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SERVICE PROVIDER (Mechanic / Towing / Fuel)
+// ─────────────────────────────────────────────────────────────
+
+model ServiceProvider {
+  id           String               @id @default(cuid())
+  name         String
+  mobile       String               @unique
+  serviceType  EmergencyServiceType
+  address      String?
+  city         String
+  state        String
+  latitude     Float?
+  longitude    Float?
+  isAvailable  Boolean              @default(true)
+  isVerified   Boolean              @default(false)
+  rating       Float                @default(0)
+  totalJobs    Int                  @default(0)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@index([city])
+  @@index([serviceType])
+  @@index([isAvailable])
+  @@map("service_providers")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SERVICE RATING
+// ─────────────────────────────────────────────────────────────
+
+model ServiceRating {
+  id                 String           @id @default(cuid())
+  breakdownRequestId String           @unique
+  vehicleId          String
+  score              Int              // 1-5
+  comment            String?
+  createdAt          DateTime         @default(now())
+
+  breakdownRequest   BreakdownRequest @relation(fields: [breakdownRequestId], references: [id])
+
+  @@index([vehicleId])
+  @@map("service_ratings")
+}
+
+// ─────────────────────────────────────────────────────────────
+// VEHICLE HEALTH / TIPS
+// ─────────────────────────────────────────────────────────────
+
+model VehicleTip {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  category    String   // tyre, engine, battery, fuel, brakes, general
+  fuelType    String?  // applies to specific fuel type
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@map("vehicle_tips")
+}
