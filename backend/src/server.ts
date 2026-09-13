@@ -20,7 +20,6 @@ async function bootstrap(): Promise<void> {
       host: HOST,
       env: env.NODE_ENV,
       prefix: env.API_PREFIX,
-      lanUrl: `http://192.168.0.130:${env.PORT}`,
     });
   });
 

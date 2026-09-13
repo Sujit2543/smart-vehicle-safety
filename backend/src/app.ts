@@ -38,40 +38,44 @@ app.use(
 
 // ── CORS ──────────────────────────────────────────────────────
 // Allow all configured origins. In dev this includes localhost + LAN IP.
+// In production this includes the Vercel deployment URL.
 // OPTIONS preflight must be handled before any other middleware.
-app.options('*', cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, same-origin)
-    if (!origin) return callback(null, true);
-    const allowed = env.ALLOWED_ORIGINS as string[];
-    if (allowed.includes(origin)) return callback(null, true);
-    // In development also allow any LAN IP (192.168.x.x, 10.x.x.x)
-    if (env.isDevelopment() && /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error(`CORS: Origin ${origin} not allowed`));
-  },
+const corsOriginFn = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  // Allow requests with no origin (mobile apps, Postman, curl, same-origin)
+  if (!origin) return callback(null, true);
+
+  const allowed = env.ALLOWED_ORIGINS as string[];
+
+  // Exact match against configured list
+  if (allowed.includes(origin)) return callback(null, true);
+
+  // In development also allow any private LAN IP
+  if (env.isDevelopment() && /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(origin)) {
+    return callback(null, true);
+  }
+
+  // Always allow any *.vercel.app subdomain (preview + production deployments)
+  if (/^https:\/\/[a-z0-9-]+(\.vercel\.app)$/.test(origin)) {
+    return callback(null, true);
+  }
+
+  // Always allow any *.up.railway.app subdomain (backend healthcheck calls itself)
+  if (/^https:\/\/[a-z0-9-]+(\.up\.railway\.app)$/.test(origin)) {
+    return callback(null, true);
+  }
+
+  return callback(new Error(`CORS: Origin ${origin} not allowed`));
+};
+
+const corsOptions = {
+  origin: corsOriginFn,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-}));
+};
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const allowed = env.ALLOWED_ORIGINS as string[];
-      if (allowed.includes(origin)) return callback(null, true);
-      if (env.isDevelopment() && /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`CORS: Origin ${origin} not allowed`));
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  })
-);
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
 
 // ── Body parsing ──────────────────────────────────────────────
 app.use(express.json({ limit: '50mb' }));
