@@ -1,7 +1,12 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import toast from 'react-hot-toast';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+// ── Backend URL resolution ────────────────────────────────────
+// Local dev  : VITE_API_BASE_URL=/api/v1  → Vite proxy forwards to localhost:5000
+// Production : VITE_API_BASE_URL=https://your-backend.up.railway.app/api/v1
+// If neither is set, default to relative /api/v1 (works when frontend+backend
+// are on the same host, e.g. during local dev with the Vite proxy running).
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
@@ -64,14 +69,25 @@ api.interceptors.response.use(
       }
     }
 
-    // Surface user-facing errors — skip toast for auth routes (they handle their own errors)
+    // Surface user-facing errors
     const isAuthRoute = originalRequest.url?.includes('/auth/');
     const message =
       (error.response?.data as any)?.message ||
       error.message ||
       'Something went wrong';
 
-    if (!isAuthRoute && error.response?.status !== 401) {
+    // Network error (backend unreachable) — always show regardless of route
+    if (!error.response) {
+      toast.error('Cannot reach server. Make sure the backend is running on port 5000.', {
+        id: 'network-error', // deduplicate toasts
+        duration: 5000,
+      });
+      return Promise.reject(error);
+    }
+
+    // Auth routes handle their own error toasts (login/OTP pages show inline errors)
+    // Non-auth 4xx/5xx — show a toast
+    if (!isAuthRoute && error.response.status !== 401) {
       toast.error(message);
     }
 
