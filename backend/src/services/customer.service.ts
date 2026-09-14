@@ -202,5 +202,22 @@ export async function updateCustomer(
   userId: string,
   data: Partial<{ fullName: string; email: string; address: string; city: string; state: string; pinCode: string }>
 ) {
-  return prisma.customer.update({ where: { userId }, data });
+  // Get the user's mobile for the create case (customer record may not exist yet)
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { mobile: true } });
+
+  return prisma.customer.upsert({
+    where: { userId },
+    update: data,
+    create: {
+      userId,
+      // fullName is required — fall back to mobile if not provided
+      fullName:  data.fullName  ?? user?.mobile ?? 'User',
+      mobile:    user?.mobile   ?? '',
+      email:     data.email,
+      address:   data.address,
+      city:      data.city,
+      state:     data.state,
+      pinCode:   data.pinCode,
+    },
+  });
 }

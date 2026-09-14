@@ -81,28 +81,31 @@ export async function verifyOtp(mobile: string, otp: string): Promise<AuthResult
     data: { isVerified: true },
   });
 
-  // Get or create user
+  // Get or create user — always ensure the account is active
   let user = await prisma.user.findUnique({ where: { mobile } });
   const isNewUser = !user;
 
   if (!user) {
     user = await prisma.user.create({
-      data: { mobile, role: UserRole.CUSTOMER },
+      data: { mobile, role: UserRole.CUSTOMER, isActive: true },
+    });
+  } else {
+    // Re-enable previously disabled accounts on successful OTP login
+    // and always refresh lastLoginAt
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { isActive: true, lastLoginAt: new Date() },
     });
   }
 
-  if (!user.isActive) {
-    throw new AppError('Your account has been disabled. Please contact support.', 403);
+  // Check if customer profile exists — also re-enable if it was disabled
+  let customer = await prisma.customer.findUnique({ where: { userId: user.id } });
+  if (customer && !customer.isActive) {
+    customer = await prisma.customer.update({
+      where: { userId: user.id },
+      data: { isActive: true },
+    });
   }
-
-  // Update last login
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { lastLoginAt: new Date() },
-  });
-
-  // Check if customer profile exists
-  const customer = await prisma.customer.findUnique({ where: { userId: user.id } });
 
   const tokens = generateTokenPair({
     userId: user.id,
