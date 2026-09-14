@@ -3,16 +3,25 @@ import toast from 'react-hot-toast';
 
 // ── Backend URL resolution ────────────────────────────────────
 // Local dev  : VITE_API_BASE_URL=/api/v1  → Vite proxy forwards to localhost:5000
-// Production : VITE_API_BASE_URL=https://your-backend.up.railway.app/api/v1
-// If neither is set, default to relative /api/v1 (works when frontend+backend
-// are on the same host, e.g. during local dev with the Vite proxy running).
+// Production : VITE_API_BASE_URL=https://your-backend.onrender.com/api/v1
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Whether the app is deployed (Vercel) vs running locally
+export const IS_DEPLOYED =
+  typeof window !== 'undefined' &&
+  !['localhost', '127.0.0.1'].includes(window.location.hostname) &&
+  !window.location.hostname.match(/^(192\.168\.|10\.|172\.)/);
+
+// Whether a real backend URL has been configured for this deployment
+export const HAS_BACKEND_URL =
+  !IS_DEPLOYED ||                                  // always true locally
+  (import.meta.env.VITE_API_BASE_URL || '').startsWith('http');
 
 const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 60000, // 60s — enough for file uploads on mobile networks
+  timeout: 60000,
 });
 
 // ── Request interceptor — attach token ──────────────────────
@@ -33,13 +42,29 @@ function processQueue(error: unknown, token: string | null = null) {
   failedQueue = [];
 }
 
+// Detect a "no backend" 404 — Vercel returns its own HTML 404 when
+// no backend is configured. We don't want to show these as toasts.
+function isVercelRouteNotFound(error: AxiosError): boolean {
+  if (!IS_DEPLOYED) return false;
+  if (!HAS_BACKEND_URL) return true;       // no backend URL at all → every call is a 404
+  const status = error.response?.status;
+  const contentType = (error.response?.headers?.['content-type'] ?? '') as string;
+  // HTML 404 from Vercel/CDN — not a real API error
+  if (status === 404 && contentType.includes('text/html')) return true;
+  return false;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (error.response?.status === 401 && !originalRequest._retry
-        && !originalRequest.url?.includes('/auth/')) {
+    // ── 401 → attempt token refresh ─────────────────────────
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes('/auth/')
+    ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -69,26 +94,37 @@ api.interceptors.response.use(
       }
     }
 
-    // Surface user-facing errors
+    // ── Network error (no response at all) ───────────────────
+    if (!error.response) {
+      toast.error(
+        'Cannot reach server. Make sure the backend is running.',
+        { id: 'network-error', duration: 5000 }
+      );
+      return Promise.reject(error);
+    }
+
+    // ── Vercel 404 (no backend configured) ───────────────────
+    // Don't show individual "Record not found" toasts — the CustomerLayout
+    // shows a single "Backend not connected" banner for this state.
+    if (isVercelRouteNotFound(error)) {
+      return Promise.reject(error);
+    }
+
+    // ── Real API errors ───────────────────────────────────────
     const isAuthRoute = originalRequest.url?.includes('/auth/');
     const message =
       (error.response?.data as any)?.message ||
       error.message ||
       'Something went wrong';
 
-    // Network error (backend unreachable) — always show regardless of route
-    if (!error.response) {
-      toast.error('Cannot reach server. Make sure the backend is running on port 5000.', {
-        id: 'network-error', // deduplicate toasts
-        duration: 5000,
-      });
+    // 401 on auth routes — the page handles it inline (login/OTP)
+    if (error.response.status === 401) {
       return Promise.reject(error);
     }
 
-    // Auth routes handle their own error toasts (login/OTP pages show inline errors)
-    // Non-auth 4xx/5xx — show a toast
-    if (!isAuthRoute && error.response.status !== 401) {
-      toast.error(message);
+    // Show toast for all other non-auth errors
+    if (!isAuthRoute) {
+      toast.error(message, { id: `api-err-${error.response.status}` });
     }
 
     return Promise.reject(error);
@@ -113,30 +149,21 @@ export const tagApi = {
   scan:          (tagId: string) => api.get(`/tags/${tagId}/scan`),
   activate:      (tagId: string, formData: FormData) =>
     api.post(`/tags/${tagId}/activate`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-
-  // Admin: generation
   bulkGenerate:  (quantity: number, prefix: string, startNumber: number) =>
     api.post('/tags/bulk-generate', { quantity, prefix, startNumber }),
   generate:      (count: number) => api.post('/tags/generate', { count }),
   nextNumber:    (prefix: string) => api.get('/tags/next-number', { params: { prefix } }),
-
-  // Admin: list / detail
   list:          (params?: Record<string, unknown>) => api.get('/tags', { params }),
   stats:         () => api.get('/tags/stats'),
   get:           (tagId: string) => api.get(`/tags/${tagId}`),
   history:       (tagId: string) => api.get(`/tags/${tagId}/history`),
-
-  // Admin: status
   changeStatus:  (tagId: string, status: string, reason?: string) =>
     api.patch(`/tags/${tagId}/status`, { status, reason }),
-
-  // Admin: QR downloads
   downloadQR:    (tagId: string) => api.get(`/tags/${tagId}/qr`, { responseType: 'blob' }),
   bulkQrZip:     (tagIds: string[]) =>
     api.post('/tags/bulk-qr-zip', { tagIds }, { responseType: 'blob' }),
   bulkQrPdf:     (tagIds: string[]) =>
     api.post('/tags/bulk-qr-pdf', { tagIds }, { responseType: 'blob' }),
-  // Legacy alias
   bulkQR:        (tagIds: string[]) =>
     api.post('/tags/bulk-qr', { tagIds }, { responseType: 'blob' }),
   qrDataUrl:     (tagId: string) => `${BASE_URL}/tags/${tagId}/qr`,
@@ -145,7 +172,6 @@ export const tagApi = {
 // ── Customers ────────────────────────────────────────────────
 
 export const customerApi = {
-  // Customer-own endpoints
   getMe:              ()            => api.get('/customers/me'),
   updateMe:           (data: Record<string, unknown>) => api.patch('/customers/me', data),
   getMyVehicles:      ()            => api.get('/customers/me/vehicles'),
@@ -155,7 +181,6 @@ export const customerApi = {
   saveInsurance:      (vehicleId: string, data: Record<string, unknown>) => api.post(`/customers/me/vehicles/${vehicleId}/insurance`, data),
   savePuc:            (vehicleId: string, data: Record<string, unknown>) => api.post(`/customers/me/vehicles/${vehicleId}/puc`, data),
   getMyNotifications: (params?: Record<string, unknown>) => api.get('/customers/me/notifications', { params }),
-  // Admin endpoints
   list:    (params?: Record<string, unknown>) => api.get('/customers', { params }),
   get:     (id: string)  => api.get(`/customers/${id}`),
   disable: (id: string)  => api.patch(`/customers/${id}/disable`),
@@ -175,9 +200,7 @@ export const vehicleApi = {
 // ── Documents ────────────────────────────────────────────────
 
 export const documentApi = {
-  // Public — list document metadata by tagId (no auth needed)
   listByTag:  (tagId: string) => api.get(`/documents/public/${tagId}`),
-  // Customer — list own vehicle's docs (auth required)
   list:   (vehicleId: string) => api.get(`/documents/vehicle/${vehicleId}`),
   upload: (vehicleId: string, formData: FormData) =>
     api.post(`/documents/vehicle/${vehicleId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
@@ -260,7 +283,6 @@ export const breakdownApi = {
     api.get('/breakdown/providers', { params: { serviceType, city } }),
   mine: () => api.get('/breakdown/mine'),
   vehicleHistory: (vehicleId: string) => api.get(`/breakdown/vehicle/${vehicleId}`),
-  // Admin
   all: (params?: Record<string, unknown>) => api.get('/breakdown', { params }),
   updateStatus: (id: string, status: string, data?: Record<string, unknown>) =>
     api.patch(`/breakdown/${id}/status`, { status, ...data }),

@@ -1,12 +1,12 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Car, FileText, Wrench,
-  Shield, Bell, User, LogOut, Menu, X, AlertTriangle
+  Shield, Bell, User, LogOut, Menu, X, AlertTriangle, ExternalLink
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { useAuthStore } from '../../stores/authStore';
-import { authApi } from '../../services/api';
+import { authApi, HAS_BACKEND_URL, IS_DEPLOYED } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const NAV_ITEMS = [
@@ -120,6 +120,26 @@ export function CustomerLayout() {
         {/* Scrollable page content */}
         <main className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-6 max-w-4xl mx-auto w-full">
+            {/* Backend not connected banner — shown on Vercel when no backend URL is set */}
+            {IS_DEPLOYED && !HAS_BACKEND_URL && (
+              <div className="mb-5 flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-2xl">
+                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-amber-800 text-sm">Backend not connected</p>
+                  <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                    This Vercel app has no backend configured. Data cannot be saved or loaded.
+                    Use the local app instead:
+                  </p>
+                  <a
+                    href="http://localhost:3000/customer/dashboard"
+                    className="inline-flex items-center gap-1 mt-1.5 text-xs font-mono text-amber-900 underline hover:no-underline"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    http://localhost:3000/customer/dashboard
+                  </a>
+                </div>
+              </div>
+            )}
             <Outlet />
           </div>
         </main>
