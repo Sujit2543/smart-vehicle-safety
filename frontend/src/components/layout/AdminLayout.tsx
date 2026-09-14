@@ -2,12 +2,12 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Tag, Users, Car, FileText, AlertTriangle,
   Radar, MessageSquare, Bell, BarChart2, ClipboardList,
-  Settings, LogOut, Shield, Menu, X, Wrench, ChevronDown
+  Settings, LogOut, Shield, Menu, X, Wrench, ExternalLink
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { useAuthStore } from '../../stores/authStore';
-import { authApi } from '../../services/api';
+import { authApi, HAS_BACKEND_URL, IS_DEPLOYED } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const navGroups = [
@@ -179,6 +179,23 @@ export function AdminLayout() {
         {/* Page content — this scrolls independently */}
         <main className="flex-1 overflow-y-auto">
           <div className="p-5 lg:p-6 max-w-screen-2xl mx-auto w-full">
+            {/* Backend not connected banner */}
+            {IS_DEPLOYED && !HAS_BACKEND_URL && (
+              <div className="mb-6 flex items-start gap-3 p-4 bg-amber-900/30 border border-amber-500/40 rounded-2xl">
+                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-bold text-amber-300 text-sm">Backend not connected</p>
+                  <p className="text-xs text-amber-200/80 mt-1">
+                    This Vercel deployment has no backend. Use the local app:
+                  </p>
+                  <a href="http://localhost:3000/admin/dashboard"
+                    className="inline-flex items-center gap-1 mt-1 text-xs font-mono text-green-400 hover:underline">
+                    <ExternalLink className="w-3 h-3" />
+                    http://localhost:3000/admin/dashboard
+                  </a>
+                </div>
+              </div>
+            )}
             <Outlet />
           </div>
         </main>

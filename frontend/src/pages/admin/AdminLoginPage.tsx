@@ -7,7 +7,7 @@ import { authApi } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
-import { Shield, Lock, AlertTriangle, Info, ExternalLink } from 'lucide-react';
+import { Shield, Lock, AlertTriangle, Info, ExternalLink, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const schema = z.object({
@@ -20,6 +20,10 @@ const isDeployed =
   typeof window !== 'undefined' &&
   !['localhost', '127.0.0.1'].includes(window.location.hostname) &&
   !window.location.hostname.match(/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/);
+
+// True when a real backend URL has been wired up
+const hasBackend = !isDeployed ||
+  (import.meta.env.VITE_API_BASE_URL || '').startsWith('http');
 
 export default function AdminLoginPage() {
   const { register, handleSubmit, formState: { errors } } = useForm({ resolver: zodResolver(schema) });
@@ -51,11 +55,13 @@ export default function AdminLoginPage() {
     },
   });
 
-  // ── Deployed (Vercel) — show only the "use local" info page ─
-  if (isDeployed) {
+  // ── Deployed WITHOUT backend — show full setup guide ────────
+  if (isDeployed && !hasBackend) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm space-y-5">
+        <div className="w-full max-w-md space-y-4">
+
+          {/* Header */}
           <div className="text-center">
             <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Shield className="w-7 h-7 text-white" />
@@ -64,50 +70,70 @@ export default function AdminLoginPage() {
             <p className="text-gray-400 text-sm mt-1">Car Deal Smart Safety Tag</p>
           </div>
 
-          <div className="bg-amber-900/30 border border-amber-500/40 rounded-2xl p-5 space-y-4">
+          {/* Warning */}
+          <div className="bg-amber-900/30 border border-amber-500/40 rounded-2xl p-5 space-y-3">
             <div className="flex items-center gap-3">
               <AlertTriangle className="w-6 h-6 text-amber-400 flex-shrink-0" />
-              <p className="text-amber-300 font-bold text-base">Backend not connected</p>
+              <p className="text-amber-300 font-bold">Backend not connected</p>
             </div>
-            <p className="text-amber-200/80 text-sm leading-relaxed">
-              This Vercel deployment is a <strong>frontend-only preview</strong>.
-              The backend runs locally on your machine.
+            <p className="text-amber-200/80 text-sm">
+              The Vercel frontend is deployed but has no backend. You have two options:
             </p>
+
+            {/* Option A — Local */}
             <div className="bg-gray-900/60 rounded-xl p-4 space-y-2">
-              <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">
-                Open this URL on your PC instead:
+              <p className="text-xs font-bold text-white uppercase tracking-wider">
+                Option A — Use locally (works right now)
               </p>
-              <a
-                href="http://localhost:3000/admin/login"
-                className="flex items-center gap-2 text-green-400 font-mono text-sm hover:text-green-300 transition-colors"
-              >
-                <ExternalLink className="w-4 h-4 flex-shrink-0" />
-                http://localhost:3000/admin/login
-              </a>
+              <ol className="text-xs text-gray-300 space-y-1.5 list-decimal list-inside">
+                <li>Open PowerShell in the project folder</li>
+                <li>Run: <code className="bg-gray-800 text-green-400 px-1 rounded">.\start.ps1</code></li>
+                <li>Open:
+                  <a href="http://localhost:3000/admin/login"
+                    className="ml-1 text-green-400 font-mono hover:underline inline-flex items-center gap-1">
+                    <ExternalLink className="w-3 h-3" />
+                    localhost:3000/admin/login
+                  </a>
+                </li>
+              </ol>
+              <div className="mt-2 p-2 bg-gray-800 rounded-lg text-xs text-gray-300">
+                Email: <span className="text-white font-mono">sujit2001026@gmail.com</span><br />
+                Password: <span className="text-white font-mono">Cardeal@123</span>
+              </div>
             </div>
-            <div className="bg-gray-900/60 rounded-xl p-4 space-y-1">
-              <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2">
-                Credentials
+
+            {/* Option B — Deploy to Render */}
+            <div className="bg-gray-900/60 rounded-xl p-4 space-y-2">
+              <p className="text-xs font-bold text-white uppercase tracking-wider">
+                Option B — Deploy backend to Render (permanent fix)
               </p>
-              <p className="text-sm text-gray-300">
-                <span className="text-gray-500">Email: </span>
-                <span className="font-mono text-white">sujit2001026@gmail.com</span>
-              </p>
-              <p className="text-sm text-gray-300">
-                <span className="text-gray-500">Password: </span>
-                <span className="font-mono text-white">Cardeal@123</span>
-              </p>
+              <ol className="text-xs text-gray-300 space-y-1.5 list-decimal list-inside">
+                <li>Go to <a href="https://render.com" target="_blank" rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline">render.com</a> → New → Blueprint</li>
+                <li>Connect GitHub repo: <span className="text-white font-mono">smart-vehicle-safety</span></li>
+                <li>Render auto-reads <code className="bg-gray-800 text-green-400 px-1 rounded">render.yaml</code></li>
+                <li>Click <strong className="text-white">Apply</strong> — wait ~5 min for deploy</li>
+                <li>Copy your backend URL: <span className="text-yellow-300 font-mono">cardeal-backend.onrender.com</span></li>
+                <li>Go to <a href="https://vercel.com" target="_blank" rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline">vercel.com</a> → Project → Settings → Env Vars</li>
+                <li>Add: <code className="bg-gray-800 text-green-400 px-1 rounded text-xs block mt-1 p-1.5">
+                  VITE_API_BASE_URL =<br/>
+                  https://cardeal-backend.onrender.com/api/v1
+                </code></li>
+                <li>Redeploy Vercel → done!</li>
+              </ol>
+              <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
+                <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                <span>After this, the admin panel will work from any device, anywhere.</span>
+              </div>
             </div>
-            <p className="text-xs text-amber-200/50 text-center">
-              Run <code className="bg-gray-900/60 px-1.5 py-0.5 rounded text-amber-300">.\start.ps1</code> first to start both servers
-            </p>
           </div>
         </div>
       </div>
     );
   }
 
-  // ── Local dev — normal login form ────────────────────────────
+  // ── Local dev OR deployed WITH backend — normal login form ──
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-4">
